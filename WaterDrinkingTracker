@@ -1,0 +1,187 @@
+
+/**
+ * 
+ * Title: Water Drinking Tracker
+ * Author: Ben Williams
+ * Version 1.0
+ * 
+ * This program was designed as part of project #3 of Mark Rober's Creative Engineering class (https://monthly.com/mark-rober-engineering) to build something that either enforces a good habit or breaks a bad one.
+ * I am bad about drinking water while I work. I can get lost in code (including this project) and not drink water for hours.
+ * So for this project, I built a scale that tracks how much water I drink over an 8 hour period while I work. The tracker uses the LCD Display connected to an Arduino to show my progress compared to the remaining time.
+ * The LED lights also report my progress:
+ * Green = I'm either ahead or equal to the ammount of water I should drink in the current 30 minute period
+ * Yellow = Notifies me 5 minutes prior to the end of the half hour if my current progress is currently equal to the time progress and will go red in 5 minutes
+ * Red = Indicates my water drinking progress is behind pace for where is should be in the current half hour period
+ * 
+ * CAD model I used to 3D print the case can be found here: https://grabcad.com/library/water-drinking-tracker-1
+ * 
+ * Future considerations:
+ * Add input option for setting water goal (total ounces)
+ * Save my water drinking statistics in Apple Health
+**/
+
+#include <LiquidCrystal.h>
+#include <TimeLib.h>
+#include <HX711.h>
+
+// Create LED Light variables
+const int ledGreen = 6;
+const int ledYellow = 7;
+const int ledRed = 8;
+
+// Create variables for time tracking
+unsigned long time;
+unsigned long increaseTimer;
+unsigned long decreaseTimer;
+int numHoursTracked;
+int totalTime;
+int currentMinute;
+
+// Create variables for water tracking
+int numOunces;
+int totalOuncesDrank;
+int OncesPerTimeInterval;
+
+// Create variables for scale tracking
+HX711 scale;
+const int LOADCELL_DOUT_PIN = 10;
+const int LOADCELL_SCK_PIN = 11;
+int currentWeight;
+int previousWeight;
+int ouncesProgress;
+bool trackTime = true;
+
+// Create LCD Display variables
+const int rs = 13, en = 12, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+// Define the custom character to use as the progress indicator on the LCD screen
+byte progressIndicator[8] = {0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111, 0b11111};
+
+
+void setup() {
+
+  // Set parameters for the program
+  numHoursTracked = 8; // set the number of hours to track (8 hours works best for a 16x2 LDC Display because the 16 characters of one line equal a 30 minute increment)
+  numOunces = 32; // Set the target number of ouces to drink within the timeframe
+  OncesPerTimeInterval = numOunces / 16; // 
+  totalOuncesDrank = 0;
+  previousWeight = 0;
+
+  // Set LED pins to output mode
+  pinMode(ledGreen, OUTPUT);
+  pinMode(ledYellow, OUTPUT);
+  pinMode(ledRed, OUTPUT);
+  
+  // Setup LCD Display
+  lcd.createChar(0, progressIndicator); // Create the progress indicator character
+  analogWrite(9,256); // Set LCD contrast
+  lcd.begin(16, 2); // Setup the LCD screen for 2 lines of 16 characters each
+  lcd.rightToLeft(); // Optional parameter. In my case, I needed the LCD Display to be installed upside down
+
+  // Scale setup
+  scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN);
+  scale.set_scale(11900); // This number represtents the scale output that is equivalent to one fluid OZ
+}
+
+void timeTracker(int time) {
+  
+  if (trackTime) {
+    if (hour(time) > 0 && hour(time) <= numHoursTracked && minute(time) == 0) {
+      totalTime++;
+      trackTime = false;
+    }
+    else if(hour(time) < numHoursTracked && minute(time) == 30) {
+      totalTime++;
+      trackTime = false;
+    }
+  }
+  else {
+    if (minute(time) != 0 && minute(time) != 30) {
+      trackTime = true;
+    }
+  }
+  // Update time progress bar
+  lcd.setCursor(15,1);
+  for (int i = 1; i <= totalTime; i++) {
+    lcd.write((byte)0);
+  }
+
+}
+
+void ouncesDrankTracker() {
+  // Get scale reading
+  currentWeight = (int)scale.get_units(5);
+
+  // If the weight is less than the previous reading and is 0 or above, delay for 100 milliseconds and read the scale again for an accurate reading
+  if (currentWeight < previousWeight && currentWeight >= 0) {
+    if (decreaseTimer == 0) {
+      decreaseTimer = millis();
+    }
+    else if (decreaseTimer >= 100) {
+      currentWeight = (int)scale.get_units(5);
+      //verify inital scale reading was correct
+      if (currentWeight < previousWeight && currentWeight >= 0) {
+        totalOuncesDrank = totalOuncesDrank + (previousWeight - currentWeight);
+        Serial.println(totalTime);
+        previousWeight = currentWeight;
+      }
+      decreaseTimer = 0;
+    }
+
+  }
+
+  if (currentWeight > previousWeight){
+    if (increaseTimer == 0) {
+      increaseTimer = millis();
+    }
+    else if (increaseTimer >= 100) {
+      currentWeight = (int)scale.get_units(5);
+      // verify inital scale reading was correct
+      if (currentWeight > previousWeight) {
+        previousWeight = currentWeight;
+      }
+      increaseTimer = 0;
+    }
+  }
+
+  // Update the ounces drank progress bar
+  ouncesProgress = totalOuncesDrank / OncesPerTimeInterval;
+  lcd.setCursor(15,0);
+  for (int i = 1; i <= ouncesProgress; i++) {
+    lcd.write((byte)0);
+  }
+}
+
+void ledMeter(int time) {
+  ouncesProgress = totalOuncesDrank / OncesPerTimeInterval;
+
+  // Yellow Light
+  currentMinute = minute(time);
+  if (currentMinute >= 25 && currentMinute <= 29 || currentMinute >= 55 && currentMinute <= 59) {
+    if (ouncesProgress == totalTime) {
+      digitalWrite(ledYellow, HIGH);
+      digitalWrite(ledGreen, LOW);
+      digitalWrite(ledRed, LOW);  
+    }
+  }
+  // Green light
+  else if (ouncesProgress >= totalTime) {
+    digitalWrite(ledGreen, HIGH);
+    digitalWrite(ledYellow, LOW);
+    digitalWrite(ledRed, LOW);
+  }
+  // Red Light
+  else if (ouncesProgress < totalTime) {
+    digitalWrite(ledRed, HIGH);
+    digitalWrite(ledGreen, LOW);
+    digitalWrite(ledYellow, LOW);
+  }
+}
+
+void loop() {
+  time = now();
+  timeTracker(time);
+  ouncesDrankTracker();
+  ledMeter(time);
+}
