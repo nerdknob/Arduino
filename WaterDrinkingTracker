@@ -13,6 +13,7 @@
  * Yellow = Notifies me 5 minutes prior to the end of the half hour if my current progress is currently equal to the time progress and will go red in 5 minutes
  * Red = Indicates my water drinking progress is behind pace for where is should be in the current half hour period
  * 
+ * My project video can be found on YouTube: https://youtu.be/MIvvdGW82qM
  * CAD model I used to 3D print the case can be found here: https://grabcad.com/library/water-drinking-tracker-1
  * 
  * Future considerations:
